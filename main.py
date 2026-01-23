@@ -7,7 +7,7 @@ import os
 app = FastAPI()
 
 # Path to model
-MODEL_PATH = os.path.join("models", "diabetes_model.pt")
+MODEL_PATH = os.path.join("models", "D_model.pt")
 
 # Load model on CPU
 device = "cpu"
