@@ -34,15 +34,40 @@ transform = transforms.Compose([
 def home():
     return {"status": "Diabetes Detection API Running"}
 
+
+
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
-    image_bytes = await file.read()
-    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    image = transform(image).unsqueeze(0)
+    # 1. READ & CONVERT
+    try:
+        image_bytes = await file.read()
+        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    except Exception:
+        return {"error": "Invalid image file. Please upload a JPEG or PNG."}
 
+    # 2. TRANSFORM
+    # Ensure this image tensor shape becomes [1, 3, 224, 224]
+    input_tensor = transform(image).unsqueeze(0)
+
+    # 3. PREDICT WITH PROBABILITIES
     with torch.no_grad():
-        outputs = model(image)
-        _, predicted = torch.max(outputs, 1)
+        outputs = model(input_tensor)
+        
+        # Apply Softmax to get percentages (0.0 to 1.0)
+        probabilities = torch.nn.functional.softmax(outputs, dim=1)
+        
+        # Get the top confidence and the class index
+        confidence, predicted_idx = torch.max(probabilities, 1)
 
-    class_names = ["diabetes" , "non_diabetes"]
-    return {"prediction": class_names[predicted.item()]}
+    # 4. DIAGNOSTIC OUTPUT
+    class_names = ["diabetes", "non_diabetes"] # 0, 1
+    
+    return {
+        "prediction": class_names[predicted_idx.item()],
+        "confidence_score": f"{confidence.item() * 100:.2f}%",
+        "raw_probabilities": {
+            "diabetes": f"{probabilities[0][0].item():.4f}",
+            "non_diabetes": f"{probabilities[0][1].item():.4f}"
+        },
+        "debug_note": "If both probs are near 0.50, your model is random guessing."
+    }
