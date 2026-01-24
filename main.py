@@ -5,7 +5,7 @@ import torchvision.transforms as transforms
 import torchvision.models as models
 from model import DiabetesClassifier
 import io
-
+import traceback
 app = FastAPI()
 
 device = torch.device("cpu")
@@ -73,4 +73,4 @@ async def predict(file: UploadFile = File(...)):
         }
 
     except Exception as e:
-        return {"error": str(e), "traceback": traceback.format_exc()}
+        return {"error": str(e), "traceback": traceback.format_exc()} 
