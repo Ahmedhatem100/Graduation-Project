@@ -1,76 +1,52 @@
-import torch
-from fastapi import FastAPI, UploadFile, File
-from PIL import Image
-import torchvision.transforms as transforms
-import torchvision.models as models
-from model import DiabetesClassifier
+# main.py
 import io
-import traceback
+from fastapi import FastAPI, File, UploadFile
+from PIL import Image
+import torch
+import torchvision.transforms as transforms
+from torchvision import models
+from model import DiabetesClassifier
+
 app = FastAPI()
 
+# -------- Load Model --------
 device = torch.device("cpu")
-MODEL_PATH = "models/D_model.pt"
 
-# Load MobileNetV2 base model (NO pretrained)
-base_model = models.mobilenet_v2(pretrained=False)
+# Load base MobileNetV2 (same as training)
+base_model = models.mobilenet_v2(weights=None)
 
 # Create classifier
 model = DiabetesClassifier(base_model)
 
-# Load weights
+# Load trained weights
+MODEL_PATH = "models/D_model.pt"
 model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+
 model.to(device)
 model.eval()
 
-# Image preprocessing (MUST match training)
+# -------- TRANSFORM (MUST MATCH VALIDATION TRANSFORM) --------
 transform = transforms.Compose([
     transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], 
-                         std=[0.229, 0.224, 0.225])
+    transforms.ToTensor()
 ])
 
-@app.get("/")
-def home():
-    return {"status": "Diabetes Detection API Running"}
-
-
-
+# -------- API Endpoint --------
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
-    try:
-        # 1. Read & Process
-        image_bytes = await file.read()
-        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        tensor = transform(image).unsqueeze(0)
+    image_bytes = await file.read()
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
-        # 2. Predict (BINARY LOGIC)
-        with torch.no_grad():
-            outputs = model(tensor)
-            
-            # Use Sigmoid for 1-output models
-            # Result is a probability between 0.0 and 1.0
-            prob = torch.sigmoid(outputs).item()
+    img_tensor = transform(img).unsqueeze(0)
 
-        # 3. Determine Class (Threshold usually 0.5)
-        # If prob > 0.5, it's the second class (Index 1)
-        # If prob < 0.5, it's the first class (Index 0)
-        
-        if prob > 0.5:
-            predicted_index = 1
-            confidence = prob
-        else:
-            predicted_index = 0
-            confidence = 1 - prob # Invert it (e.g., if prob is 0.1, confidence is 90% for class 0)
+    with torch.no_grad():
+        output = model(img_tensor)
+        prob = output.item()   # value between 0 and 1
 
-        class_names = ["diabetes", "non_diabetes"]
-        
-        return {
-            "prediction": class_names[predicted_index],
-            "confidence_score": f"{confidence * 100:.2f}%",
-            "raw_output": prob,
-            "logic_used": "Binary Sigmoid (< 0.5 = diabetes)"
-        }
+    # Binary decision
+    prediction = "non_diabetes" if prob >= 0.5 else "diabetes"
 
-    except Exception as e:
-        return {"error": str(e), "traceback": traceback.format_exc()} 
+    return {
+        "prediction": prediction,
+        "probability_non_diabetes": prob
+    }
